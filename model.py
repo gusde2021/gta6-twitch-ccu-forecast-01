@@ -107,7 +107,7 @@ def extract_platforms(text):
     return platforms
 
 
-def compute_weight(target_p1, target_notes, comp):
+def compute_weight(target_p1, target_notes, comp, dt_ref=None):
     comp_p1, _ = parse_hourly(comp, comp.get('day_start'))
     if comp_p1 is None:
         return 0.0
@@ -133,7 +133,18 @@ def compute_weight(target_p1, target_notes, comp):
     else:
         w_plat = 1.0
 
-    return w_scale * w_unlock * w_plat
+    # Recency weight (half-life 3 years)
+    w_recency = 1.0
+    comp_day_start = comp.get('day_start')
+    if comp_day_start and dt_ref:
+        try:
+            dt_comp = datetime.fromisoformat(comp_day_start.replace('Z', '+00:00'))
+            age_years = (dt_ref - dt_comp).total_seconds() / (365.25 * 24 * 3600)
+            w_recency = 2.0 ** (-age_years / 3.0)
+        except Exception:
+            pass
+
+    return w_scale * w_unlock * w_plat * w_recency
 
 
 def weighted_median(values_weights):
@@ -183,12 +194,33 @@ def forecast_case(case: dict, name: str) -> dict:
     notes = case.get("notes", "")
 
     comparables = case.get("comparables", [])
+    valid_comp_dates = []
+    for comp in comparables:
+        ds = comp.get('day_start')
+        if ds:
+            try:
+                valid_comp_dates.append(datetime.fromisoformat(ds.replace('Z', '+00:00')))
+            except Exception:
+                pass
+
+    ref_date_str = case.get('day_start') or case.get('date')
+    dt_ref = None
+    if ref_date_str:
+        try:
+            dt_ref = datetime.fromisoformat(ref_date_str.replace('Z', '+00:00'))
+        except Exception:
+            pass
+    if dt_ref is None and valid_comp_dates:
+        dt_ref = max(valid_comp_dates)
+    if dt_ref is None:
+        dt_ref = datetime.now(timezone.utc)
+
     valid_comps = []
     for comp in comparables:
         res = parse_hourly(comp, comp.get('day_start'))
         if res is not None:
             comp_p1, log_ratios = res
-            w = compute_weight(p1, notes, comp)
+            w = compute_weight(p1, notes, comp, dt_ref)
             if w > 0:
                 valid_comps.append((w, log_ratios))
 

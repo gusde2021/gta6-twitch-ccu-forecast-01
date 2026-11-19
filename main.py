@@ -19,6 +19,10 @@ def main() -> None:
     for path in sorted(INPUT_DIR.glob("*.in")):
         case = json.loads(path.read_text(encoding="utf-8"))
         forecast = model.forecast_case(case, path.name)
+        if isinstance(forecast, dict) and "hours" in forecast:
+            for row in forecast["hours"]:
+                if "q" in row and isinstance(row["q"], list):
+                    row["q"] = sorted(row["q"])
         (OUTPUT_DIR / f"{path.stem}.out").write_text(json.dumps(forecast, separators=(",", ":")) + "\n", encoding="utf-8")
 
 
